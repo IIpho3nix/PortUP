@@ -96,10 +96,10 @@ Port Mapping Formats:
   <port>             Forward local port to the same remote port.
 
 Examples:
-  PortUP.exe tcp 8080~12345       # Forward local 8080 to remote 12345 (TCP)
-  PortUP.exe tcp 8080             # Forward local 8080 to remote 8080 (TCP)
-  PortUP.exe tcp 8080~12345 8081 8082 # Multiple mappings at once
-  PortUP.exe udp 5000~6000        # for UDP`)
+  PortUP.exe tcp 8080~12345       	  	# Forward local 8080 to remote 12345 (TCP)
+  PortUP.exe tcp 8080             	  	# Forward local 8080 to remote 8080 (TCP)
+  PortUP.exe tcp 8080~12345 8081 8082 	# Multiple mappings at once
+  PortUP.exe udp 5000~6000        	  	# for UDP`)
 }
 
 func main() {
