@@ -1,4 +1,4 @@
-module github.com/IIpho3nix/go-PortUP
+module github.com/IIpho3nix/PortUP
 
 go 1.24.3
 
