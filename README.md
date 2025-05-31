@@ -51,6 +51,11 @@ PortUP tcp 8080~12345 9090 7070~7071
 ```
 > Forwards multiple TCP ports with custom mappings.
 
+```bash
+PortUP tcp 192.168.1.50:8080~80
+```
+> Forwards external TCP port 80 to 192.168.1.50's port 8080.
+
 ## ⚠️ Requirements
 
 - A router that supports **UPnP** and has it enabled.
