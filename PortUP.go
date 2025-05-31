@@ -24,6 +24,7 @@ const (
 type Mapping struct {
 	LocalPort  int
 	RemotePort int
+	localIP    string
 	Protocol   string
 }
 
@@ -31,22 +32,50 @@ func parseArgs(args []string, protocol string) ([]Mapping, error) {
 	var mappings []Mapping
 	for _, arg := range args {
 		var localPort, remotePort int
+		var localIP string
 		parts := strings.Split(arg, "~")
 		switch len(parts) {
 		case 1:
-			p, err := strconv.Atoi(parts[0])
-			if err != nil {
-				return nil, fmt.Errorf("invalid port: %s", arg)
+			if strings.Contains(parts[0], ":") {
+				var parts2 = strings.Split(parts[0], ":")
+				localIP = parts2[0]
+				p, err := strconv.Atoi(parts2[1])
+				if err != nil {
+					return nil, fmt.Errorf("invalid port: %s", arg)
+				}
+				localPort = p
+				remotePort = p
+			} else {
+				p, err := strconv.Atoi(parts[0])
+				if err != nil {
+					return nil, fmt.Errorf("invalid port: %s", arg)
+				}
+				localIP = getLocalIP()
+				localPort = p
+				remotePort = p
 			}
-			localPort = p
-			remotePort = p
 		case 2:
-			lp, err1 := strconv.Atoi(parts[0])
+			if strings.Contains(parts[0], ":") {
+				var parts2 = strings.Split(parts[0], ":")
+				localIP = parts2[0]
+				lp, err := strconv.Atoi(parts2[1])
+				if err != nil {
+					return nil, fmt.Errorf("invalid port mapping: %s", arg)
+				}
+				localPort = lp
+			} else {
+				lp, err := strconv.Atoi(parts[0])
+				if err != nil {
+					return nil, fmt.Errorf("invalid port mapping: %s", arg)
+				}
+				localIP = getLocalIP()
+				localPort = lp
+			}
+
 			rp, err2 := strconv.Atoi(parts[1])
-			if err1 != nil || err2 != nil {
+			if err2 != nil {
 				return nil, fmt.Errorf("invalid port mapping: %s", arg)
 			}
-			localPort = lp
 			remotePort = rp
 		default:
 			return nil, fmt.Errorf("invalid format: %s", arg)
@@ -54,6 +83,7 @@ func parseArgs(args []string, protocol string) ([]Mapping, error) {
 		mappings = append(mappings, Mapping{
 			LocalPort:  localPort,
 			RemotePort: remotePort,
+			localIP:    localIP,
 			Protocol:   strings.ToUpper(protocol),
 		})
 	}
@@ -92,14 +122,17 @@ Description:
   Forward local ports to remote ports over TCP or UDP.
 
 Port Mapping Formats:
-  <local>~<remote>   Forward local port to a different remote port.
-  <port>             Forward local port to the same remote port.
+  <port>                     Forward local port to the same remote port
+  <local>~<remote>           Forward local port to a different remote port
+  <ip:port>                  Forward from a specific local IP and port to same remote port
+  <ip:port>~<remote>         Forward from specific local IP and port to remote port
 
 Examples:
-  PortUP.exe tcp 8080~12345       	  	# Forward local 8080 to remote 12345 (TCP)
-  PortUP.exe tcp 8080             	  	# Forward local 8080 to remote 8080 (TCP)
-  PortUP.exe tcp 8080~12345 8081 8082 	# Multiple mappings at once
-  PortUP.exe udp 5000~6000        	  	# for UDP`)
+  PortUP tcp 8080~12345
+  PortUP udp 192.168.1.101:5000
+  PortUP tcp 192.168.1.101:8080~80
+  PortUP udp 8080 192.168.1.50:1234~5678
+  `)
 }
 
 func main() {
@@ -136,11 +169,6 @@ func main() {
 	client := devices[0]
 	logger.Info("UPnP gateway found.")
 
-	localIP := getLocalIP()
-	if localIP == "" {
-		logger.Fatal("Failed to determine local IP address")
-	}
-
 	addedMappings := []Mapping{}
 	publicIP, _ := client.GetExternalIPAddress()
 
@@ -149,7 +177,7 @@ func main() {
 
 	for _, m := range mappings {
 		desc := fmt.Sprintf("PortUP %s %d", strings.ToUpper(protocol), m.LocalPort)
-		err := client.AddPortMapping("", uint16(m.RemotePort), m.Protocol, uint16(m.LocalPort), localIP, true, desc, 0)
+		err := client.AddPortMapping("", uint16(m.RemotePort), m.Protocol, uint16(m.LocalPort), m.localIP, true, desc, 0)
 		if err != nil {
 			logger.Fatalf("Failed to add port mapping %d -> %d (%s): %v", m.RemotePort, m.LocalPort, m.Protocol, err)
 		}
@@ -157,7 +185,7 @@ func main() {
 		fmt.Printf(" %s%s%s:%s%d%s %s->%s %s%s%s:%s%d%s\n",
 			purple, publicIP, reset, cyan, m.RemotePort, reset,
 			green, reset,
-			purple, localIP, reset, cyan, m.LocalPort, reset,
+			purple, m.localIP, reset, cyan, m.LocalPort, reset,
 		)
 
 		addedMappings = append(addedMappings, m)
