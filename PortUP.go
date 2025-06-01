@@ -16,9 +16,10 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/log"
 	"github.com/huin/goupnp/dcps/internetgateway1"
+	"github.com/huin/goupnp/dcps/internetgateway2"
 )
 
-const VERSION = "1.3.3"
+const VERSION = "1.4.0"
 
 type GitHubRelease struct {
 	TagName string `json:"tag_name"`
@@ -260,6 +261,69 @@ Examples:
   `)
 }
 
+type Client interface {
+	GetExternalIPAddress() (string, error)
+	GetGenericPortMappingEntry(uint16) (string, uint16, string, uint16, string, bool, string, uint32, error)
+	DeletePortMapping(string, uint16, string) error
+	AddPortMapping(string, uint16, string, uint16, string, bool, string, uint32) error
+}
+
+type wrappedClient struct {
+	raw any
+}
+
+func (w *wrappedClient) GetExternalIPAddress() (string, error) {
+	switch c := w.raw.(type) {
+	case *internetgateway2.WANIPConnection2:
+		return c.GetExternalIPAddress()
+	case *internetgateway2.WANIPConnection1:
+		return c.GetExternalIPAddress()
+	case *internetgateway1.WANIPConnection1:
+		return c.GetExternalIPAddress()
+	default:
+		return "", fmt.Errorf("unsupported client type")
+	}
+}
+
+func (w *wrappedClient) GetGenericPortMappingEntry(port uint16) (string, uint16, string, uint16, string, bool, string, uint32, error) {
+	switch c := w.raw.(type) {
+	case *internetgateway2.WANIPConnection2:
+		return c.GetGenericPortMappingEntry(port)
+	case *internetgateway2.WANIPConnection1:
+		return c.GetGenericPortMappingEntry(port)
+	case *internetgateway1.WANIPConnection1:
+		return c.GetGenericPortMappingEntry(port)
+	default:
+		return "", 0, "", 0, "", false, "", 0, fmt.Errorf("unsupported client type")
+	}
+}
+
+func (w *wrappedClient) DeletePortMapping(externalIPAddress string, externalPort uint16, protocol string) error {
+	switch c := w.raw.(type) {
+	case *internetgateway2.WANIPConnection2:
+		return c.DeletePortMapping(externalIPAddress, externalPort, protocol)
+	case *internetgateway2.WANIPConnection1:
+		return c.DeletePortMapping(externalIPAddress, externalPort, protocol)
+	case *internetgateway1.WANIPConnection1:
+		return c.DeletePortMapping(externalIPAddress, externalPort, protocol)
+	default:
+		return fmt.Errorf("unsupported client type")
+	}
+}
+
+func (w *wrappedClient) AddPortMapping(NewRemoteHost string, NewExternalPort uint16, NewProtocol string, NewInternalPort uint16, NewInternalClient string, NewEnabled bool, NewPortMappingDescription string, NewLeaseDuration uint32) error {
+	switch c := w.raw.(type) {
+	case *internetgateway2.WANIPConnection2:
+		return c.AddPortMapping(NewRemoteHost, NewExternalPort, NewProtocol, NewInternalPort, NewInternalClient, NewEnabled, NewPortMappingDescription, NewLeaseDuration)
+	case *internetgateway2.WANIPConnection1:
+		return c.AddPortMapping(NewRemoteHost, NewExternalPort, NewProtocol, NewInternalPort, NewInternalClient, NewEnabled, NewPortMappingDescription, NewLeaseDuration)
+	case *internetgateway1.WANIPConnection1:
+		return c.AddPortMapping(NewRemoteHost, NewExternalPort, NewProtocol, NewInternalPort, NewInternalClient, NewEnabled, NewPortMappingDescription, NewLeaseDuration)
+	default:
+		return fmt.Errorf("unsupported client type")
+	}
+}
+
 func main() {
 	styles := log.DefaultStyles()
 	styles.Timestamp = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
@@ -313,16 +377,39 @@ func main() {
 		logger.Fatal(err)
 	}
 
+	var TempClient any
+
 	logger.Info("Discovering UPnP gateway...")
-	devices, errs, err := internetgateway1.NewWANIPConnection1Clients()
-	if len(devices) == 0 {
+	devices2, errs, err := internetgateway2.NewWANIPConnection2Clients()
+	if len(devices2) == 0 {
 		for _, err := range errs {
 			logger.Infof("Discovery error: %v", err)
 		}
-		logger.Fatal("No UPnP gateway found.")
+		devices, errs, _ := internetgateway2.NewWANIPConnection1Clients()
+		if len(devices) == 0 {
+			for _, err := range errs {
+				logger.Infof("Discovery error: %v", err)
+			}
+			devicesIG1, errs, _ := internetgateway1.NewWANIPConnection1Clients()
+			if len(devicesIG1) == 0 {
+				for _, err := range errs {
+					logger.Infof("Discovery error: %v", err)
+				}
+				logger.Fatal("No UPnP gateway found. Please make sure UPnP is enabled on your router.")
+			} else {
+				logger.Info("UPnP gateway found. IGDv1")
+				TempClient = devicesIG1[0]
+			}
+		} else {
+			logger.Info("UPnP gateway found. IGDv2, WANIPConnection1")
+			TempClient = devices[0]
+		}
+	} else {
+		logger.Info("UPnP gateway found. IGDv2, WANIPConnection2")
+		TempClient = devices2[0]
 	}
-	client := devices[0]
-	logger.Info("UPnP gateway found.")
+
+	client := &wrappedClient{raw: TempClient}
 
 	addedMappings := []Mapping{}
 	publicIP, _ := client.GetExternalIPAddress()
@@ -356,7 +443,6 @@ func main() {
 		if err != nil {
 			logger.Warnf("Failed to add port mapping %d -> %d (%s): %v", m.RemotePort, m.LocalPort, m.Protocol, err)
 			time.Sleep(50 * time.Millisecond)
-			client = devices[0]
 			continue
 		}
 
@@ -384,7 +470,6 @@ func main() {
 		if err != nil {
 			logger.Warnf("Failed to remove port mapping %d (%s): %v", m.RemotePort, m.Protocol, err)
 			time.Sleep(50 * time.Millisecond)
-			client = devices[0]
 		}
 	}
 	logger.Info("Shutdown complete.")

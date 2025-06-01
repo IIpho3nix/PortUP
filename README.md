@@ -8,6 +8,7 @@
 
 - ✅ Supports **TCP** and **UDP** port forwarding
 - ✅ Add **multiple port mappings** at once
+- ✅ Supports **IGDv2** and **IGDv1**
 - ✅ Friendly **console output** with colorized formatting
 
 ---
