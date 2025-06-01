@@ -1,5 +1,11 @@
 # ![PortUP Logo](./assets/Logo.png "PortUP Logo")
 
+[![GitHub release](https://img.shields.io/github/release/IIpho3nix/PortUP?include_prereleases=&sort=semver&color=brightgreen)](https://github.com/IIpho3nix/PortUP/releases/)
+[![License](https://img.shields.io/badge/License-MIT-brightgreen)](#license)
+[![issues - PortUP](https://img.shields.io/github/issues/IIpho3nix/PortUP)](https://github.com/IIpho3nix/PortUP/issues)
+[![stars - PortUP](https://img.shields.io/github/stars/IIpho3nix/PortUP?style=social)](https://github.com/IIpho3nix/PortUP)
+[![forks - PortUP](https://img.shields.io/github/forks/IIpho3nix/PortUP?style=social)](https://github.com/IIpho3nix/PortUP)
+
 ![PortUP Showcase](./assets/PortUP.gif "PortUP Showcase")
 
 🚀 **PortUP** is a simple command-line tool that uses UPnP to expose local ports, making your services accessible from the internet.
@@ -90,4 +96,4 @@ PortUP cleanup
 
 ## 📝 License
 
-MIT License. See [LICENSE](LICENSE) for details.
+Released under [MIT](/LICENSE) by [IIpho3nix](https://github.com/IIpho3nix).
