@@ -1,4 +1,6 @@
-# PortUP
+# ![PortUP Logo](./assets/Logo.png "PortUP Logo")
+
+![PortUP Showcase](./assets/PortUP.gif "PortUP Showcase")
 
 🚀 **PortUP** is a simple command-line tool that uses UPnP to expose local ports, making your services accessible from the internet.
 
