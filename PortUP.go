@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
@@ -10,9 +12,46 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Masterminds/semver"
 	"github.com/charmbracelet/log"
 	"github.com/huin/goupnp/dcps/internetgateway1"
 )
+
+const VERSION = "1.3.1"
+
+type GitHubRelease struct {
+	TagName string `json:"tag_name"`
+}
+
+func getLatestVersion() (string, error) {
+	url := "https://api.github.com/repos/IIpho3nix/PortUP/releases/latest"
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "go-http-client")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("GitHub API returned status code %d", resp.StatusCode)
+	}
+
+	var release GitHubRelease
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return "", err
+	}
+
+	return release.TagName, nil
+}
 
 const (
 	green  = "\033[38;5;46m"
@@ -170,6 +209,20 @@ func isInSameRange(ipStr1, ipStr2 string) bool {
 	return false
 }
 
+func isNewerVersion(v1, v2 string) (bool, error) {
+	version1, err := semver.NewVersion(v1)
+	if err != nil {
+		return false, err
+	}
+
+	version2, err := semver.NewVersion(v2)
+	if err != nil {
+		return false, err
+	}
+
+	return version1.GreaterThan(version2), nil
+}
+
 func printLogo() {
 	logo := `
  ____    ___   ____   ______  __ __  ____
@@ -207,6 +260,29 @@ Examples:
 }
 
 func main() {
+	latestVer, verErr := getLatestVersion()
+	if verErr != nil {
+		logger.Warnf("Failed to fetch latest version: %v", verErr)
+		latestVer = VERSION
+	}
+
+	logger.Infof("PortUP v%s", VERSION)
+
+	update, errllatestVer := isNewerVersion(latestVer, VERSION)
+	if errllatestVer != nil {
+		logger.Warnf("Failed to check for updates: %v", errllatestVer)
+		update = false
+	}
+
+	if update {
+		logger.Infof("A new version (%s) is available. it is recommended to update to the latest version.", latestVer)
+	}
+
+	if len(os.Args) < 2 {
+		printUsage()
+		os.Exit(1)
+	}
+
 	if len(os.Args) < 3 {
 		if strings.ToLower(os.Args[1]) != "cleanup" {
 			printUsage()
@@ -236,7 +312,7 @@ func main() {
 	devices, errs, err := internetgateway1.NewWANIPConnection1Clients()
 	if len(devices) == 0 {
 		for _, err := range errs {
-			logger.Info("Discovery error:", err)
+			logger.Infof("Discovery error: %v", err)
 		}
 		logger.Fatal("No UPnP gateway found.")
 	}

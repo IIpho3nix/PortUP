@@ -3,6 +3,7 @@ module github.com/IIpho3nix/PortUP
 go 1.24.3
 
 require (
+	github.com/Masterminds/semver v1.5.0
 	github.com/charmbracelet/log v0.4.2
 	github.com/huin/goupnp v1.3.0
 )
