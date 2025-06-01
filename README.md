@@ -27,6 +27,8 @@
 go install github.com/IIpho3nix/PortUP@latest
 ```
 
+or download the binaries from [Releases](https://github.com/IIpho3nix/PortUP/releases)
+
 ---
 
 ## ⚙️ Usage
