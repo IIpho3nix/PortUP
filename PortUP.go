@@ -18,7 +18,7 @@ import (
 	"github.com/huin/goupnp/dcps/internetgateway1"
 )
 
-const VERSION = "1.3.2"
+const VERSION = "1.3.3"
 
 type GitHubRelease struct {
 	TagName string `json:"tag_name"`
@@ -262,7 +262,7 @@ Examples:
 
 func main() {
 	styles := log.DefaultStyles()
-	styles.Timestamp = lipgloss.NewStyle().Foreground(lipgloss.Color("235"))
+	styles.Timestamp = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 	logger.SetStyles(styles)
 
 	latestVer, verErr := getLatestVersion()
