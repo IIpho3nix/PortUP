@@ -34,6 +34,12 @@ PortUP <tcp|udp> <port mapping> [<port mapping> ...]
 - `<local>~<remote>`  
   Forward local port to a different remote port.
 
+- `<ip:port>`  
+  Forward from a specific local IP and port to same remote port.
+
+- `<ip:port>~<remote>`  
+  Forward from specific local IP and port to remote port.
+
 ### 📌 Examples
 
 ```bash
