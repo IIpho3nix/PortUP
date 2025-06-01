@@ -186,7 +186,7 @@ l__j    \___/ l__j\_j  l__j   \__,_jl__j
 
 func printUsage() {
 	fmt.Println(`Usage:
-  PortUP <tcp|udp|clean protocol > <port mapping> [<port mapping> ...]
+  PortUP <tcp|udp|cleanup> <port mapping> [<port mapping> ...]
 
 Description:
   Forward local ports to remote ports over TCP or UDP.
@@ -202,19 +202,20 @@ Examples:
   PortUP udp 192.168.1.101:5000
   PortUP tcp 192.168.1.101:8080~80
   PortUP udp 8080 192.168.1.50:1234~5678
-  PortUP clean tcp 8080 80 81 
-  PortUP clean udp 80
+  PortUP cleanup
   `)
 }
 
 func main() {
 	if len(os.Args) < 3 {
-		printUsage()
-		os.Exit(1)
+		if strings.ToLower(os.Args[1]) != "cleanup" {
+			printUsage()
+			os.Exit(1)
+		}
 	}
 
 	protocol := strings.ToLower(os.Args[1])
-	if protocol != "clean" && protocol != "tcp" && protocol != "udp" {
+	if protocol != "cleanup" && protocol != "tcp" && protocol != "udp" {
 		printUsage()
 		logger.Fatalf("Invalid protocol: %s. Must be tcp or udp.", protocol)
 	}
@@ -222,9 +223,7 @@ func main() {
 	var mappings []Mapping
 	var err error
 
-	if protocol == "clean" {
-		mappings, err = parseArgs(os.Args[3:], protocol)
-	} else {
+	if protocol != "cleanup" {
 		mappings, err = parseArgs(os.Args[2:], protocol)
 	}
 
@@ -247,23 +246,27 @@ func main() {
 	addedMappings := []Mapping{}
 	publicIP, _ := client.GetExternalIPAddress()
 
-	if protocol == "clean" {
-		realProtocol := strings.ToUpper(os.Args[2:][0])
-		if realProtocol == "TCP" || realProtocol == "UDP" {
-			for _, m := range mappings {
-				err := client.DeletePortMapping("", uint16(m.RemotePort), realProtocol)
-				if err != nil {
-					logger.Warnf("Failed to remove port mapping %d (%s): %v", m.RemotePort, realProtocol, err)
-				} else {
-					logger.Infof("Removed port mapping %d (%s)", m.RemotePort, realProtocol)
-				}
+	if protocol == "cleanup" {
+		//UPnP has a max of 64 port mappings on most consumer hardware
+		for i := 0; i < 64; i++ {
+			_, extport, proto, _, _, _, desc, _, err := client.GetGenericPortMappingEntry(uint16(i))
+			time.Sleep(time.Millisecond * 50)
+			if err == nil && strings.Contains(desc, "PortUP") {
+				addedMappings = append(addedMappings, Mapping{RemotePort: int(extport), Protocol: proto})
 			}
-			logger.Info("All specified port mappings removed.")
-			os.Exit(0)
-		} else {
-			printUsage()
-			os.Exit(1)
 		}
+
+		for _, m := range addedMappings {
+			err := client.DeletePortMapping("", uint16(m.RemotePort), m.Protocol)
+			if err != nil {
+				logger.Warnf("Failed to remove port mapping %d (%s): %v", m.RemotePort, m.Protocol, err)
+			} else {
+				logger.Infof("Removed port mapping %d (%s)", m.RemotePort, m.Protocol)
+			}
+		}
+
+		logger.Info("PortUP cleanup complete.")
+		os.Exit(0)
 	}
 
 	for _, m := range mappings {

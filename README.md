@@ -39,22 +39,32 @@ PortUP <tcp|udp> <port mapping> [<port mapping> ...]
 ```bash
 PortUP tcp 8080
 ```
+
 > Forwards local TCP port 8080 to external port 8080.
 
 ```bash
 PortUP udp 5000~6000
 ```
+
 > Forwards local UDP port 5000 to external port 6000.
 
 ```bash
 PortUP tcp 8080~12345 9090 7070~7071
 ```
+
 > Forwards multiple TCP ports with custom mappings.
 
 ```bash
 PortUP tcp 192.168.1.50:8080~80
 ```
+
 > Forwards external TCP port 80 to 192.168.1.50's port 8080.
+
+```bash
+PortUP cleanup
+```
+
+> Cleans up previous port mappings left behind after a improper shutdown.
 
 ## ⚠️ Requirements
 
