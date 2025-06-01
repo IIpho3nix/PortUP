@@ -13,11 +13,12 @@ import (
 	"time"
 
 	"github.com/Masterminds/semver"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/log"
 	"github.com/huin/goupnp/dcps/internetgateway1"
 )
 
-const VERSION = "1.3.1"
+const VERSION = "1.3.2"
 
 type GitHubRelease struct {
 	TagName string `json:"tag_name"`
@@ -260,6 +261,10 @@ Examples:
 }
 
 func main() {
+	styles := log.DefaultStyles()
+	styles.Timestamp = lipgloss.NewStyle().Foreground(lipgloss.Color("235"))
+	logger.SetStyles(styles)
+
 	latestVer, verErr := getLatestVersion()
 	if verErr != nil {
 		logger.Warnf("Failed to fetch latest version: %v", verErr)
