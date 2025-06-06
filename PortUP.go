@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -19,7 +20,7 @@ import (
 	"github.com/huin/goupnp/dcps/internetgateway2"
 )
 
-const VERSION = "1.4.0"
+const VERSION = "1.4.1"
 
 type GitHubRelease struct {
 	TagName string `json:"tag_name"`
@@ -324,6 +325,19 @@ func (w *wrappedClient) AddPortMapping(NewRemoteHost string, NewExternalPort uin
 	}
 }
 
+func getPublicIP() string {
+	resp, err := http.Get("https://api.ipify.org")
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return ""
+	}
+	return string(body)
+}
+
 func main() {
 	styles := log.DefaultStyles()
 	styles.Timestamp = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
@@ -413,6 +427,14 @@ func main() {
 
 	addedMappings := []Mapping{}
 	publicIP, _ := client.GetExternalIPAddress()
+
+	if getPublicIP() != publicIP {
+		logger.Warnf("Public IP mismatch: %s != %s, Likely Double NAT, PortUP may not work.", getPublicIP(), publicIP)
+	}
+
+	if publicIP == "0.0.0.0" {
+		logger.Warn("Public IP is 0.0.0.0, UPnP may be disabled/misconfigured, PortUP may not work.")
+	}
 
 	if protocol == "cleanup" {
 		//UPnP has a max of 64 port mappings on most consumer hardware
