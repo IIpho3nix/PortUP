@@ -18,12 +18,50 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/huin/goupnp/dcps/internetgateway1"
 	"github.com/huin/goupnp/dcps/internetgateway2"
+	"github.com/pion/mdns/v2"
+	"golang.org/x/net/ipv4"
+	"golang.org/x/net/ipv6"
 )
 
 const VERSION = "1.4.1"
 
 type GitHubRelease struct {
 	TagName string `json:"tag_name"`
+}
+
+func startMDNS(localIP, name string) error {
+	ip := net.ParseIP(localIP)
+	if ip == nil {
+		return fmt.Errorf("invalid IP: %s", localIP)
+	}
+
+	addr4, err := net.ResolveUDPAddr("udp4", mdns.DefaultAddressIPv4)
+	if err != nil {
+		return err
+	}
+	addr6, err := net.ResolveUDPAddr("udp6", mdns.DefaultAddressIPv6)
+	if err != nil {
+		return err
+	}
+
+	l4, err := net.ListenUDP("udp4", addr4)
+	if err != nil {
+		return err
+	}
+	l6, err := net.ListenUDP("udp6", addr6)
+	if err != nil {
+		return err
+	}
+
+	_, err = mdns.Server(ipv4.NewPacketConn(l4), ipv6.NewPacketConn(l6), &mdns.Config{
+		LocalNames: []string{name + ".local"},
+	})
+	if err != nil {
+		return err
+	}
+
+	logger.Infof("mDNS broadcast started: %s.local [%s]", name, localIP)
+	return nil
 }
 
 func getLatestVersion() (string, error) {
@@ -258,6 +296,8 @@ Examples:
   PortUP udp 192.168.1.101:5000
   PortUP tcp 192.168.1.101:8080~80
   PortUP udp 8080 192.168.1.50:1234~5678
+  PortUP mdns machine
+  PortUP mdns 192.168.1.101~service	
   PortUP cleanup
   `)
 }
@@ -364,6 +404,65 @@ func main() {
 	if len(os.Args) < 2 {
 		printUsage()
 		os.Exit(1)
+	}
+
+	if strings.ToLower(os.Args[1]) == "mdns" {
+		if len(os.Args) < 3 {
+			printUsage()
+			logger.Fatal("Missing mDNS name or mappings.")
+		}
+
+		type mdnsEntry struct {
+			IP   string
+			Name string
+		}
+
+		var entries []mdnsEntry
+
+		for _, arg := range os.Args[2:] {
+			var ip, name string
+
+			if strings.Contains(arg, "~") {
+				parts := strings.Split(arg, "~")
+				if len(parts) != 2 {
+					logger.Fatalf("Invalid mDNS mapping: %s", arg)
+				}
+				ip = parts[0]
+				name = parts[1]
+			} else {
+				ip = getLocalIP()
+				name = arg
+			}
+
+			if !isValidLocalIP(ip) {
+				logger.Fatalf("Invalid local IP: %s", ip)
+			}
+
+			entries = append(entries, mdnsEntry{IP: ip, Name: name})
+		}
+
+		for _, entry := range entries {
+			err := startMDNS(entry.IP, entry.Name)
+			if err != nil {
+				logger.Warnf("Failed to start mDNS for %s.local (%s): %v", entry.Name, entry.IP, err)
+			} else {
+				logger.Infof("Started mDNS for %s.local [%s]", entry.Name, entry.IP)
+			}
+		}
+
+		printLogo()
+		fmt.Println("mDNS registrations:")
+		for _, entry := range entries {
+			fmt.Printf("  %s%s.local%s -> %s%s%s\n", purple, entry.Name, reset, cyan, entry.IP, reset)
+		}
+
+		// Block until shutdown
+		sigs := make(chan os.Signal, 1)
+		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGKILL)
+		<-sigs
+
+		logger.Info("Caught shutdown signal. Exiting mDNS mode.")
+		os.Exit(0)
 	}
 
 	if len(os.Args) < 3 {
