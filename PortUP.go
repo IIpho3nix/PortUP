@@ -23,7 +23,7 @@ import (
 	"golang.org/x/net/ipv6"
 )
 
-const VERSION = "1.4.1"
+const VERSION = "1.5.1"
 
 type GitHubRelease struct {
 	TagName string `json:"tag_name"`
