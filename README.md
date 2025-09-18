@@ -83,6 +83,22 @@ PortUP cleanup
 
 > Cleans up previous port mappings left behind after a improper shutdown.
 
+## ✨ mDNS mode!
+
+with the new mDNS mode, you can register .local domains for your services on your local network!
+
+```bash
+PortUP mdns machine
+```
+
+> registers machine.local for the current computer
+
+```bash
+PortUP mdns 192.168.1.50~service
+```
+
+> registers service.local for 192.168.1.50
+
 ## ⚠️ Requirements
 
 - A router that supports **UPnP** and has it enabled.
@@ -93,6 +109,7 @@ PortUP cleanup
 
 - [charmbracelet/log](https://github.com/charmbracelet/log) — for beautiful logging
 - [huin/goupnp](https://github.com/huin/goupnp) — for UPnP
+- [pion/mdns](https://github.com/pion/mdns) — for mDNS
 
 ---
 

@@ -456,7 +456,6 @@ func main() {
 			fmt.Printf("  %s%s.local%s -> %s%s%s\n", purple, entry.Name, reset, cyan, entry.IP, reset)
 		}
 
-		// Block until shutdown
 		sigs := make(chan os.Signal, 1)
 		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGKILL)
 		<-sigs
