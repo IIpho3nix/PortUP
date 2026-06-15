@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -23,7 +24,7 @@ import (
 	"golang.org/x/net/ipv6"
 )
 
-const VERSION = "1.5.1"
+const VERSION = "1.6.0"
 
 type GitHubRelease struct {
 	TagName string `json:"tag_name"`
@@ -190,6 +191,15 @@ func parseArgs(args []string, protocol string) ([]Mapping, error) {
 		})
 	}
 	return mappings, nil
+}
+
+var dnsLabelRegex = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`)
+
+func isValidDNSLabel(label string) bool {
+	if len(label) == 0 || len(label) > 63 {
+		return false
+	}
+	return dnsLabelRegex.MatchString(label)
 }
 
 func getLocalIP() string {
@@ -436,6 +446,10 @@ func main() {
 
 			if !isValidLocalIP(ip) {
 				logger.Fatalf("Invalid local IP: %s", ip)
+			}
+
+			if !isValidDNSLabel(name) {
+				logger.Warnf("'%s' does not match standard DNS label requirements (letters, numbers, hyphens only). While this is allowed under RFC 6762, some operating systems and programs may fail to resolve these.", name)
 			}
 
 			entries = append(entries, mdnsEntry{IP: ip, Name: name})
