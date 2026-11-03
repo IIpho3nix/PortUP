@@ -83,6 +83,26 @@ PortUP cleanup
 
 > Cleans up previous port mappings left behind after a improper shutdown.
 
+```bash
+PortUP tcp auto
+```
+
+> Picks a port that is free locally and on the router, and forwards it.
+
+## 🤖 Scripting
+
+Add `--json` to any command for machine readable output, STDOUT carries events, STDERR has warnings and errors, non zero exit code on fatal error.
+
+The process keeps running until SIGINT/SIGTERM, so dont wait for a exit.
+
+Examples:
+
+```bash
+PortUP tcp auto --json
+```
+
+> `{"event":"ready","public_ip":"...","mappings":[{"protocol":"tcp","local_ip":"...","local_port":49213,"remote_port":49213}]}`
+
 ## ✨ mDNS mode!
 
 with the new mDNS mode, you can register .local domains for your services on your local network!

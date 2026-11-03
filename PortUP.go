@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net"
 	"net/http"
 	"os"
@@ -24,7 +25,7 @@ import (
 	"golang.org/x/net/ipv6"
 )
 
-const VERSION = "1.6.0"
+const VERSION = "1.7.0"
 
 type GitHubRelease struct {
 	TagName string `json:"tag_name"`
@@ -289,8 +290,15 @@ l__j    \___/ l__j\_j  l__j   \__,_jl__j
 }
 
 func printUsage() {
-	fmt.Println(`Usage:
-  PortUP <tcp|udp|cleanup> <port mapping> [<port mapping> ...]
+	if jsonOut {
+		return
+	}
+	fmt.Fprintln(os.Stderr, `Usage:
+  PortUP <tcp|udp|cleanup> <port mapping> [<port mapping> ...] [--json]
+  PortUP <tcp|udp> auto [--json]
+
+Flags:
+  --json                     Machine-readable JSON events on stdout, JSON logs on stderr
 
 Description:
   Forward local ports to remote ports over TCP or UDP.
@@ -309,6 +317,8 @@ Examples:
   PortUP mdns machine
   PortUP mdns 192.168.1.101~service	
   PortUP cleanup
+  PortUP tcp auto
+  PortUP udp auto --json
   `)
 }
 
@@ -376,23 +386,153 @@ func (w *wrappedClient) AddPortMapping(NewRemoteHost string, NewExternalPort uin
 }
 
 func getPublicIP() string {
-	resp, err := http.Get("https://api.ipify.org")
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	resp, err := client.Get("https://www.cloudflare.com/cdn-cgi/trace")
 	if err != nil {
 		return ""
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return ""
 	}
-	return string(body)
+
+	for _, line := range strings.Split(string(body), "\n") {
+		if strings.HasPrefix(line, "ip=") {
+			ip := strings.TrimPrefix(line, "ip=")
+			if net.ParseIP(ip) != nil {
+				return ip
+			}
+		}
+	}
+
+	return ""
 }
 
-func main() {
-	styles := log.DefaultStyles()
-	styles.Timestamp = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	logger.SetStyles(styles)
+var jsonOut bool
 
+type mappingOut struct {
+	Protocol   string `json:"protocol"`
+	LocalIP    string `json:"local_ip"`
+	LocalPort  int    `json:"local_port"`
+	RemotePort int    `json:"remote_port"`
+}
+
+type readyOut struct {
+	Event    string       `json:"event"`
+	PublicIP string       `json:"public_ip,omitempty"`
+	Mappings []mappingOut `json:"mappings,omitempty"`
+	MDNS     []mdnsOut    `json:"mdns,omitempty"`
+}
+
+type errorOut struct {
+	Event string `json:"event"`
+	Error string `json:"error"`
+}
+
+type cleanupEntry struct {
+	Protocol   string `json:"protocol"`
+	RemotePort int    `json:"remote_port"`
+	Error      string `json:"error,omitempty"`
+}
+
+type cleanupOut struct {
+	Event   string         `json:"event"`
+	Removed []cleanupEntry `json:"removed"`
+	Failed  []cleanupEntry `json:"failed"`
+}
+
+type stoppedOut struct {
+	Event string `json:"event"`
+}
+
+type mdnsOut struct {
+	Name string `json:"name"`
+	IP   string `json:"ip"`
+}
+
+func parseFlags(args []string) []string {
+	rest := []string{args[0]}
+	for _, a := range args[1:] {
+		if a == "--json" {
+			jsonOut = true
+		} else {
+			rest = append(rest, a)
+		}
+	}
+	return rest
+}
+
+func fail(format string, a ...any) {
+	if jsonOut {
+		printJSON(errorOut{Event: "error", Error: fmt.Sprintf(format, a...)})
+		os.Exit(1)
+	}
+	logger.Fatalf(format, a...)
+}
+
+func printJSON(v any) {
+	out, _ := json.Marshal(v)
+	fmt.Println(string(out))
+}
+
+func isLocalPortFree(protocol string, port int) bool {
+	addr := fmt.Sprintf(":%d", port)
+	if protocol == "udp" {
+		c, err := net.ListenPacket("udp", addr)
+		if err != nil {
+			return false
+		}
+		c.Close()
+		return true
+	}
+	l, err := net.Listen("tcp", addr)
+	if err != nil {
+		return false
+	}
+	l.Close()
+	return true
+}
+
+func pickFreePort(client Client, protocol string) (int, error) {
+	used := map[int]bool{}
+	for i := 0; i < 64; i++ {
+		_, extport, proto, _, _, _, _, _, err := client.GetGenericPortMappingEntry(uint16(i))
+		if err != nil {
+			break
+		}
+		if strings.EqualFold(proto, protocol) {
+			used[int(extport)] = true
+		}
+	}
+
+	for i := 0; i < 500; i++ {
+		port := 49152 + rand.Intn(65536-49152)
+		if used[port] || !isLocalPortFree(protocol, port) {
+			continue
+		}
+		return port, nil
+	}
+	return 0, fmt.Errorf("no free port found")
+}
+
+func removeMappings(client Client, mappings []Mapping) {
+	for _, m := range mappings {
+		err := client.DeletePortMapping("", uint16(m.RemotePort), m.Protocol)
+		if err != nil {
+			logger.Warnf("Failed to remove port mapping %d (%s): %v", m.RemotePort, m.Protocol, err)
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+}
+
+func checkForUpdate() {
 	latestVer, verErr := getLatestVersion()
 	if verErr != nil {
 		logger.Warnf("Failed to fetch latest version: %v", verErr)
@@ -410,16 +550,32 @@ func main() {
 	if update {
 		logger.Infof("A new version (%s) is available. it is recommended to update to the latest version.", latestVer)
 	}
+}
 
-	if len(os.Args) < 2 {
-		printUsage()
-		os.Exit(1)
+func main() {
+	args := parseFlags(os.Args)
+
+	styles := log.DefaultStyles()
+	styles.Timestamp = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	logger.SetStyles(styles)
+
+	if jsonOut {
+		logger.SetReportTimestamp(false)
+		logger.SetLevel(log.WarnLevel)
+		logger.SetFormatter(log.JSONFormatter)
+	} else {
+		checkForUpdate()
 	}
 
-	if strings.ToLower(os.Args[1]) == "mdns" {
-		if len(os.Args) < 3 {
+	if len(args) < 2 {
+		printUsage()
+		fail("Missing command.")
+	}
+
+	if strings.ToLower(args[1]) == "mdns" {
+		if len(args) < 3 {
 			printUsage()
-			logger.Fatal("Missing mDNS name or mappings.")
+			fail("Missing mDNS name or mappings.")
 		}
 
 		type mdnsEntry struct {
@@ -429,13 +585,13 @@ func main() {
 
 		var entries []mdnsEntry
 
-		for _, arg := range os.Args[2:] {
+		for _, arg := range args[2:] {
 			var ip, name string
 
 			if strings.Contains(arg, "~") {
 				parts := strings.Split(arg, "~")
 				if len(parts) != 2 {
-					logger.Fatalf("Invalid mDNS mapping: %s", arg)
+					fail("Invalid mDNS mapping: %s", arg)
 				}
 				ip = parts[0]
 				name = parts[1]
@@ -445,7 +601,7 @@ func main() {
 			}
 
 			if !isValidLocalIP(ip) {
-				logger.Fatalf("Invalid local IP: %s", ip)
+				fail("Invalid local IP: %s", ip)
 			}
 
 			if !isValidDNSLabel(name) {
@@ -464,10 +620,18 @@ func main() {
 			}
 		}
 
-		printLogo()
-		fmt.Println("mDNS registrations:")
-		for _, entry := range entries {
-			fmt.Printf("  %s%s.local%s -> %s%s%s\n", purple, entry.Name, reset, cyan, entry.IP, reset)
+		if jsonOut {
+			out := readyOut{Event: "mdns_ready"}
+			for _, entry := range entries {
+				out.MDNS = append(out.MDNS, mdnsOut{Name: entry.Name + ".local", IP: entry.IP})
+			}
+			printJSON(out)
+		} else {
+			printLogo()
+			fmt.Println("mDNS registrations:")
+			for _, entry := range entries {
+				fmt.Printf("  %s%s.local%s -> %s%s%s\n", purple, entry.Name, reset, cyan, entry.IP, reset)
+			}
 		}
 
 		sigs := make(chan os.Signal, 1)
@@ -475,32 +639,37 @@ func main() {
 		<-sigs
 
 		logger.Info("Caught shutdown signal. Exiting mDNS mode.")
+		if jsonOut {
+			printJSON(stoppedOut{Event: "stopped"})
+		}
 		os.Exit(0)
 	}
 
-	if len(os.Args) < 3 {
-		if strings.ToLower(os.Args[1]) != "cleanup" {
+	if len(args) < 3 {
+		if strings.ToLower(args[1]) != "cleanup" {
 			printUsage()
-			os.Exit(1)
+			fail("Missing port mappings.")
 		}
 	}
 
-	protocol := strings.ToLower(os.Args[1])
+	protocol := strings.ToLower(args[1])
 	if protocol != "cleanup" && protocol != "tcp" && protocol != "udp" {
 		printUsage()
-		logger.Fatalf("Invalid protocol: %s. Must be tcp or udp.", protocol)
+		fail("Invalid protocol: %s. Must be tcp or udp.", protocol)
 	}
 
 	var mappings []Mapping
 	var err error
 
-	if protocol != "cleanup" {
-		mappings, err = parseArgs(os.Args[2:], protocol)
+	isAuto := protocol != "cleanup" && len(args) == 3 && strings.ToLower(args[2]) == "auto"
+
+	if protocol != "cleanup" && !isAuto {
+		mappings, err = parseArgs(args[2:], protocol)
 	}
 
 	if err != nil {
 		printUsage()
-		logger.Fatal(err)
+		fail("%v", err)
 	}
 
 	var TempClient any
@@ -521,7 +690,7 @@ func main() {
 				for _, err := range errs {
 					logger.Infof("Discovery error: %v", err)
 				}
-				logger.Fatal("No UPnP gateway found. Please make sure UPnP is enabled on your router.")
+				fail("No UPnP gateway found. Please make sure UPnP is enabled on your router.")
 			} else {
 				logger.Info("UPnP gateway found. IGDv1")
 				TempClient = devicesIG1[0]
@@ -558,17 +727,39 @@ func main() {
 			}
 		}
 
+		result := cleanupOut{Event: "cleanup", Removed: []cleanupEntry{}, Failed: []cleanupEntry{}}
 		for _, m := range addedMappings {
 			err := client.DeletePortMapping("", uint16(m.RemotePort), m.Protocol)
 			if err != nil {
 				logger.Warnf("Failed to remove port mapping %d (%s): %v", m.RemotePort, m.Protocol, err)
+				result.Failed = append(result.Failed, cleanupEntry{Protocol: strings.ToLower(m.Protocol), RemotePort: m.RemotePort, Error: err.Error()})
 			} else {
 				logger.Infof("Removed port mapping %d (%s)", m.RemotePort, m.Protocol)
+				result.Removed = append(result.Removed, cleanupEntry{Protocol: strings.ToLower(m.Protocol), RemotePort: m.RemotePort})
 			}
 		}
 
-		logger.Info("PortUP cleanup complete.")
+		if jsonOut {
+			printJSON(result)
+		} else {
+			logger.Infof("PortUP cleanup complete: %d removed, %d failed.", len(result.Removed), len(result.Failed))
+		}
+		if len(result.Failed) > 0 {
+			os.Exit(1)
+		}
 		os.Exit(0)
+	}
+
+	if isAuto {
+		localIP := getLocalIP()
+		if !isValidLocalIP(localIP) {
+			fail("Invalid local IP: %s", localIP)
+		}
+		port, err := pickFreePort(client, protocol)
+		if err != nil {
+			fail("%v", err)
+		}
+		mappings = []Mapping{{LocalPort: port, RemotePort: port, localIP: localIP, Protocol: strings.ToUpper(protocol)}}
 	}
 
 	for _, m := range mappings {
@@ -583,15 +774,28 @@ func main() {
 		addedMappings = append(addedMappings, m)
 	}
 
-	printLogo()
-	fmt.Println("Currently Forwarding Ports:")
+	if len(addedMappings) == 0 || (jsonOut && len(addedMappings) != len(mappings)) {
+		removeMappings(client, addedMappings)
+		fail("Failed to add port mappings.")
+	}
 
-	for _, m := range addedMappings {
-		fmt.Printf(" %s%s%s:%s%d%s %s->%s %s%s%s:%s%d%s\n",
-			purple, publicIP, reset, cyan, m.RemotePort, reset,
-			green, reset,
-			purple, m.localIP, reset, cyan, m.LocalPort, reset,
-		)
+	if jsonOut {
+		out := readyOut{Event: "ready", PublicIP: publicIP}
+		for _, m := range addedMappings {
+			out.Mappings = append(out.Mappings, mappingOut{Protocol: strings.ToLower(m.Protocol), LocalIP: m.localIP, LocalPort: m.LocalPort, RemotePort: m.RemotePort})
+		}
+		printJSON(out)
+	} else {
+		printLogo()
+		fmt.Println("Currently Forwarding Ports:")
+
+		for _, m := range addedMappings {
+			fmt.Printf(" %s%s%s:%s%d%s %s->%s %s%s%s:%s%d%s\n",
+				purple, publicIP, reset, cyan, m.RemotePort, reset,
+				green, reset,
+				purple, m.localIP, reset, cyan, m.LocalPort, reset,
+			)
+		}
 	}
 
 	sigs := make(chan os.Signal, 1)
@@ -599,12 +803,9 @@ func main() {
 	<-sigs
 
 	logger.Info("Caught shutdown signal. Cleaning up port mappings...")
-	for _, m := range addedMappings {
-		err := client.DeletePortMapping("", uint16(m.RemotePort), m.Protocol)
-		if err != nil {
-			logger.Warnf("Failed to remove port mapping %d (%s): %v", m.RemotePort, m.Protocol, err)
-			time.Sleep(50 * time.Millisecond)
-		}
-	}
+	removeMappings(client, addedMappings)
 	logger.Info("Shutdown complete.")
+	if jsonOut {
+		printJSON(stoppedOut{Event: "stopped"})
+	}
 }
