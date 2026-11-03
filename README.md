@@ -89,6 +89,12 @@ PortUP tcp auto
 
 > Picks a port that is free locally and on the router, and forwards it.
 
+```bash
+PortUP tcp auto 2
+```
+
+> Same as above, but picks multiple ports (1 to 16, default 1).
+
 ## 🤖 Scripting
 
 Add `--json` to any command for machine readable output, STDOUT carries events, STDERR has warnings and errors, non zero exit code on fatal error.

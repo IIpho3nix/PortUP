@@ -295,7 +295,7 @@ func printUsage() {
 	}
 	fmt.Fprintln(os.Stderr, `Usage:
   PortUP <tcp|udp|cleanup> <port mapping> [<port mapping> ...] [--json]
-  PortUP <tcp|udp> auto [--json]
+  PortUP <tcp|udp> auto [count] [--json]
 
 Flags:
   --json                     Machine-readable JSON events on stdout, JSON logs on stderr
@@ -318,6 +318,7 @@ Examples:
   PortUP mdns 192.168.1.101~service	
   PortUP cleanup
   PortUP tcp auto
+  PortUP tcp auto 2
   PortUP udp auto --json
   `)
 }
@@ -500,7 +501,7 @@ func isLocalPortFree(protocol string, port int) bool {
 	return true
 }
 
-func pickFreePort(client Client, protocol string) (int, error) {
+func pickFreePorts(client Client, protocol string, count int) ([]int, error) {
 	used := map[int]bool{}
 	for i := 0; i < 64; i++ {
 		_, extport, proto, _, _, _, _, _, err := client.GetGenericPortMappingEntry(uint16(i))
@@ -512,14 +513,19 @@ func pickFreePort(client Client, protocol string) (int, error) {
 		}
 	}
 
-	for i := 0; i < 500; i++ {
+	ports := []int{}
+	for i := 0; i < 500*count && len(ports) < count; i++ {
 		port := 49152 + rand.Intn(65536-49152)
 		if used[port] || !isLocalPortFree(protocol, port) {
 			continue
 		}
-		return port, nil
+		used[port] = true
+		ports = append(ports, port)
 	}
-	return 0, fmt.Errorf("no free port found")
+	if len(ports) < count {
+		return nil, fmt.Errorf("no free port found")
+	}
+	return ports, nil
 }
 
 func removeMappings(client Client, mappings []Mapping) {
@@ -661,7 +667,15 @@ func main() {
 	var mappings []Mapping
 	var err error
 
-	isAuto := protocol != "cleanup" && len(args) == 3 && strings.ToLower(args[2]) == "auto"
+	isAuto := protocol != "cleanup" && (len(args) == 3 || len(args) == 4) && strings.ToLower(args[2]) == "auto"
+	autoCount := 1
+	if isAuto && len(args) == 4 {
+		autoCount, err = strconv.Atoi(args[3])
+		if err != nil || autoCount < 1 || autoCount > 16 {
+			printUsage()
+			fail("Invalid auto count: %s. Must be between 1 and 16.", args[3])
+		}
+	}
 
 	if protocol != "cleanup" && !isAuto {
 		mappings, err = parseArgs(args[2:], protocol)
@@ -755,11 +769,13 @@ func main() {
 		if !isValidLocalIP(localIP) {
 			fail("Invalid local IP: %s", localIP)
 		}
-		port, err := pickFreePort(client, protocol)
+		ports, err := pickFreePorts(client, protocol, autoCount)
 		if err != nil {
 			fail("%v", err)
 		}
-		mappings = []Mapping{{LocalPort: port, RemotePort: port, localIP: localIP, Protocol: strings.ToUpper(protocol)}}
+		for _, port := range ports {
+			mappings = append(mappings, Mapping{LocalPort: port, RemotePort: port, localIP: localIP, Protocol: strings.ToUpper(protocol)})
+		}
 	}
 
 	for _, m := range mappings {
